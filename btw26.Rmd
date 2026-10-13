@@ -1,0 +1,318 @@
+---
+title: "Korrelationsmatrix Wahl-O-Mat Landtagswahl SA 2026"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+author: Jonas Borchert
+---
+
+<br/>
+
+## Preparation for the code
+
+Setting the working directory, clearing the environment and loading needed packages.
+
+```{r setup}
+knitr::opts_knit$set(root.dir = "I:/Dropbox/Programming/R/Wahl-O-Mat Korrelationen")
+#closeAllConnections()
+rm(list=ls()) # deleting all current variables in the environment
+#install.packages("pacman", repos='http://cran.us.r-project.org') 
+library("pacman")
+p_load( #install and load needed packages
+#  gifski,
+  grid,
+  magick,
+  patchwork,
+  readxl,
+  rgl,
+  tidyverse,
+  vegan)
+set.seed(123) 
+```
+
+<br/>
+
+## Setting necessary variables
+
+
+```{r}
+
+# For execution on PC
+setwd("I:/Dropbox/Programming/R/Wahl-O-Mat Korrelationen")
+path <- "I:/Dropbox/Programming/R/Wahl-O-Mat Korrelationen"
+
+```
+
+
+## Importing Data downloaded from bpb-website
+
+
+```{r}
+# Importing database from excel file
+
+temp <- read_xlsx(
+  path = paste0(path, "/Wahl-O-Mat Sachsen-Anhalt 2026_Datensatz.xlsx"),
+  sheet = 2
+)
+
+# Polishing tibble for R
+  # Only keeping data necessary for determining correlation and visualization
+db.parties <- temp %>% 
+  select(`Partei: Kurzbezeichnung`, `These: Nr.`, `Position: Position`) %>% 
+  rename(
+    Partei = `Partei: Kurzbezeichnung`,
+    These = `These: Nr.`,
+    Position = `Position: Position`) %>% 
+  mutate(
+    Position = case_when(
+      Position == "Stimme zu" ~ 1,
+      Position == "Stimme nicht zu" ~ -1,
+      Position == "Neutral" ~ 0
+    )
+  ) %>% # then reshaping the long format to a wide one
+  pivot_wider(
+    names_from = Partei,
+    values_from = Position
+  ) %>% 
+  select(!These)
+
+
+
+  
+```
+
+
+## Correlation Matrix
+
+
+```{r}
+
+# Using Pearson Correlation and then reordering and filtering it
+cormat <- as_tibble(round(cor(db.parties), 3)) 
+cormat <- cormat %>% 
+  mutate(Partei = colnames(.)) %>% 
+  arrange(-`Die Linke`) # sorts with descending correlation to chosen party
+cormat <- cormat%>% 
+  select(Partei, cormat$Partei)
+
+
+
+
+```
+
+
+
+### Visualization of Correlations
+
+
+```{r}
+
+# Convert to long format for ggplot
+cormat_long <- cormat %>%
+  pivot_longer(-Partei, names_to = "Variable", values_to = "Correlation")
+
+# Ensure Partei and Variable follow the original order, but flip y-axis order
+cormat_long <- cormat_long %>%
+  mutate(
+    Partei = factor(Partei, levels = rev(unique(cormat$Partei))),  # Flip y-axis order
+    Variable = factor(Variable, levels = unique(cormat$Partei))  # Keep x-axis order unchanged
+  )
+
+# Plot heatmap
+  plot1 <- ggplot(
+    cormat_long, 
+    aes(x = Variable, y = Partei, fill = Correlation)) +
+    geom_tile(aes(fill = Correlation), color = "white", linewidth = 0.2) +  # Normal heatmap
+    geom_tile(data = cormat_long %>% filter(Correlation == 1),  # Separate layer for r=1
+              fill = "black", color = "white", linewidth = 0.2) +  
+    geom_text(aes(label = ifelse(Correlation == 1, "", sprintf("%.1f", Correlation))), 
+              color = "black", size = 3.5) +  # Hide text on diagonal
+    scale_fill_gradient2(
+      low = "blue", high = "red", mid = "white", midpoint = 0,
+      breaks = c(-1, 0, 1),  # Only show -1, 0, 1 explicitly
+      labels = c("-1" = " -1  -  Gegensätzlich", "0" = "0  -  Keine Korrelation", "1" = "1  -  Ähnlich"),  
+      limits = c(-1, 1),  
+      guide = guide_colorbar(
+        title.position = "top",
+        label = TRUE,
+        ticks = FALSE
+      )
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),  
+      axis.title.x = element_blank(),  
+      axis.title.y = element_blank(),  
+      legend.title = element_blank(),
+      legend.text = element_text(size = 10),
+      legend.key.height = unit(2.7, "cm"),  
+      axis.text.y = element_text(size = 10),
+      legend.position = "right"
+    ) +
+    labs(title = "Parteiähnlichkeit im Wahl-O-Mat") +
+    coord_fixed(ratio = 1.5)
+  
+  # Save the plot
+  ggsave(filename = paste0(path, "/2026-LTW-SA-CorMap", ".png"), plot = plot1,
+         height = 12,
+         width = 9,
+         bg = "white")
+
+  
+  
+  
+```
+
+
+## Principal Component Analysis
+
+```{r}
+
+pca <- prcomp(
+  scale(t(db.parties)), # Standardize the data
+  center = TRUE,
+  scale. = TRUE)
+
+db.pca <- as_tibble(pca$x*-1) %>% 
+  mutate(Partei = colnames(db.parties))
+
+```
+
+
+### 2D Visualization of PCA
+
+```{r}
+
+plot2 <- ggplot(db.pca, aes(x = PC1, y = PC2, label = Partei)) +
+  geom_point() +
+  geom_text(vjust = -1, size = 2) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black") +  # Vertical line at x = 0
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +  # Horizontal line at y = 0
+  xlim(-7, 7) +  
+  ylim(-7, 7) +  
+  theme_minimal() +
+  labs(title = "Hauptkomponentenanalyse der Parteien aufgrund der Wahl-O-Mat Antworten",
+       x = "Hauptkomponente 1",
+       y = "Hauptkomponente 2")
+
+# Plot3: Scree Plot
+
+temp <- pca$sdev^2 / sum(pca$sdev^2) * 100
+
+plot3 <- ggplot(tibble(PC = seq_along(temp), Variance = temp),
+                aes(x = PC, y = Variance)) +
+  geom_line(color = "steelblue") +
+  geom_point() +
+  geom_text(aes(label = round(Variance, 1)), vjust = -0.5) +
+  theme_minimal() +
+  labs(title = "Scree Plot", x = "Hauptkomponente", y = "Erklärte Varianz (%)")
+
+
+    # Saving the plots to a directory
+  ggsave(filename = paste0(path, "/2026-LTW-SA-PCA", ".png"), plot = plot2 + plot3,
+#         height = 12,
+#         width = 9,
+         bg = "white")
+
+
+
+```
+
+
+### 3D Visualization of PCA
+
+```{r}
+
+#options(rgl.useNULL = TRUE)
+
+# For compatability purposes changing letters
+db.pca <- db.pca %>%
+  mutate(Partei_ascii = Partei %>%
+    str_replace_all(c(
+      "ä" = "ae", "ö" = "oe", "ü" = "ue",
+      "Ä" = "AE", "Ö" = "OE", "Ü" = "UE",
+      "ß" = "ss"
+    ))
+  )
+
+# create 3D-Plot
+plot3d(
+  x = db.pca$PC1, 
+  y = db.pca$PC2, 
+  z = db.pca$PC3,
+  col = "steelblue",
+  size = 8,
+  xlab = "Hauptkomponente 1", ylab = "Hauptkomponente 2", zlab = "Hauptkomponente 3"
+)
+
+# better clarity/visibility/spatial orientation
+## reference plane at z = 0
+planes3d(0, 0, 1, 0, alpha = 0.1, col = "grey")
+## drop points from each point to z=0-plane
+segments3d(
+  x = rep(db.pca$PC1, each = 2),
+  y = rep(db.pca$PC2, each = 2),
+  z = as.vector(rbind(db.pca$PC3, 0)),  # from point down to z = 0
+  col = "grey60"
+)
+## grid lines on back walls of box
+grid3d(c("x", "y", "z"))
+## box frame around the plot
+#box3d()
+
+# window size
+par3d(windowRect = c(0, 0, 800, 800))
+
+# add labels
+text3d(
+  x = db.pca$PC1, 
+  y = db.pca$PC2, 
+  z = db.pca$PC3, 
+  texts = db.pca$Partei_ascii,
+  adj = c(0.5, -1),
+  cex = 0.8,
+  depth_test = "always"
+)
+
+# zooming if wanted
+par3d(zoom = 1.0)
+
+# setting FOV (standard is 30)
+par3d(FOV = 30)
+
+# safe as rotating GIF
+movie3d(
+  movie = "2026-LTW-SA-PCA3D",
+  spin3d(axis = c(0, 0, 1), rpm = 6),  # rotating around z axis (third component), rpm = spins per minute
+  duration = 20,        # this implies 2 full spins with rpm = 6 
+  dir = path,           
+  type = "gif",
+  fps = 25,
+  webshot = FALSE
+)
+
+
+```
+
+
+
+
+
+## Testing/Diagnosis purposes
+
+```{r}
+
+
+
+  
+  
+```
+
+
+
+
+
+
+
