@@ -40,8 +40,12 @@ set.seed(123)
 ```{r}
 
 # For execution on PC
-setwd("I:/Dropbox/Programming/R/Wahl-O-Mat Korrelationen")
-path <- "I:/Dropbox/Programming/R/Wahl-O-Mat Korrelationen"
+# setwd("I:/Dropbox/Programming/R/Wahl-O-Mat Korrelationen")
+# path <- "I:/Dropbox/Programming/R/Wahl-O-Mat Korrelationen"
+
+# For execution on Laptop
+setwd("C:/Users/jonas/Dropbox/Programming/R/Wahl-O-Mat Korrelationen")
+path <- "C:/Users/jonas/Dropbox/Programming/R/Wahl-O-Mat Korrelationen"
 
 ```
 
